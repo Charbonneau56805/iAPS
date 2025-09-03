@@ -17,12 +17,17 @@ extension AddCarbs {
         @State private var presentPresets = false
         @State private var string = ""
         @State private var newPreset: (dish: String, carbs: Decimal, fat: Decimal, protein: Decimal) = ("", 0, 0, 0)
-        
+
         @FetchRequest(
             entity: Presets.entity(),
-            sortDescriptors: [NSSortDescriptor(key: "dish", ascending: true)], predicate: NSPredicate(
-                format: "dish != %@", " " as String
+            sortDescriptors: [NSSortDescriptor(key: "dish", ascending: true)], predicate:
+            NSCompoundPredicate(
+                andPredicateWithSubpredicates: [
+                    NSPredicate(format: "dish != %@", " " as String),
+                    NSPredicate(format: "dish != %@", "Empty" as String)
+                ]
             )
+
         ) var carbPresets: FetchedResults<Presets>
 
         @Environment(\.managedObjectContext) var moc
@@ -59,7 +64,7 @@ extension AddCarbs {
                             value: $state.carbs,
                             formatter: formatter,
                             autofocus: true,
-                            cleanInput: true
+                            liveEditing: true
                         )
                         Text("grams").foregroundColor(.secondary)
                     }
@@ -147,7 +152,10 @@ extension AddCarbs {
             }
             .navigationTitle("Add Meal")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationBarItems(trailing: Button("Cancel", action: state.hideModal))
+            .navigationBarItems(trailing: Button("Cancel", action: {
+                state.hideModal()
+                if editMode { state.apsManager.determineBasalSync() }
+            }))
             .sheet(isPresented: $presentPresets, content: { presetView })
         }
 
@@ -234,6 +242,7 @@ extension AddCarbs {
                 }
             }
             .sheet(isPresented: $state.edit, content: { editView })
+            .environment(\.colorScheme, colorScheme)
         }
 
         private var editView: some View {
@@ -245,17 +254,17 @@ extension AddCarbs {
                     HStack {
                         Text("Carbs").foregroundStyle(.secondary)
                         Spacer()
-                        DecimalTextField("0", value: $newPreset.carbs, formatter: formatter)
+                        DecimalTextField("0", value: $newPreset.carbs, formatter: formatter, liveEditing: true)
                     }
                     HStack {
                         Text("Fat").foregroundStyle(.secondary)
                         Spacer()
-                        DecimalTextField("0", value: $newPreset.fat, formatter: formatter)
+                        DecimalTextField("0", value: $newPreset.fat, formatter: formatter, liveEditing: true)
                     }
                     HStack {
                         Text("Protein").foregroundStyle(.secondary)
                         Spacer()
-                        DecimalTextField("0", value: $newPreset.protein, formatter: formatter)
+                        DecimalTextField("0", value: $newPreset.protein, formatter: formatter, liveEditing: true)
                     }
                 } header: { Text("Saved Food") }
 
@@ -267,7 +276,7 @@ extension AddCarbs {
                         .tint(.white)
                         .disabled(disabled)
                 }
-            }
+            }.environment(\.colorScheme, colorScheme)
         }
 
         @ViewBuilder private func proteinAndFat() -> some View {
@@ -279,7 +288,7 @@ extension AddCarbs {
                     value: $state.fat,
                     formatter: formatter,
                     autofocus: false,
-                    cleanInput: true
+                    liveEditing: true
                 )
                 Text("grams").foregroundColor(.secondary)
             }
@@ -291,7 +300,7 @@ extension AddCarbs {
                     value: $state.protein,
                     formatter: formatter,
                     autofocus: false,
-                    cleanInput: true
+                    liveEditing: true
                 ).foregroundColor(.loopRed)
 
                 Text("grams").foregroundColor(.secondary)

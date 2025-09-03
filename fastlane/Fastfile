@@ -25,8 +25,19 @@ ENV["FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT"] = "120"
 
 APP_IDENTIFIER = ENV.fetch('APP_IDENTIFIER') { "ru.artpancreas.#{TEAMID}.FreeAPS" }
 
+if ENV['BUILD_GROUP']
+  File.write('../ConfigOverride.xcconfig', "COPYRIGHT_NOTICE = #{ENV['BUILD_GROUP']}\n", mode: 'a')
+end
+
 if #{APP_IDENTIFIER} != "ru.artpancreas.#{TEAMID}.FreeAPS"
-  File.write('../ConfigOverride.xcconfig', "BUNDLE_IDENTIFIER = #{APP_IDENTIFIER}", mode: 'a')
+  File.write('../ConfigOverride.xcconfig', "BUNDLE_IDENTIFIER = #{APP_IDENTIFIER}\n", mode: 'a')
+end
+
+if File.exist?('../ConfigOverride.xcconfig')
+  contents = File.read('../ConfigOverride.xcconfig')
+  puts "=== File Contents: ../ConfigOverride.xcconfig ==="
+  puts contents
+  puts "====================="
 end
 
 platform :ios do
@@ -155,10 +166,15 @@ platform :ios do
     )
 
     def configure_bundle_id(name, identifier, capabilities)
-      bundle_id = Spaceship::ConnectAPI::BundleId.find(identifier) || Spaceship::ConnectAPI::BundleId.create(name: name, identifier: identifier)
-      capabilities.each { |capability|
-        bundle_id.create_capability(capability)
-      }
+      bundle_id = Spaceship::ConnectAPI::BundleId.find(identifier) || Spaceship::ConnectAPI::BundleId.create(
+        name:       name,
+        identifier: identifier,
+        platform:   "IOS"
+      )
+      existing = bundle_id.get_capabilities.map(&:capability_type)
+      capabilities.reject { |c| existing.include?(c) }.each do |cap|
+        bundle_id.create_capability(cap)
+      end
     end
 
     configure_bundle_id("FreeAPS", "#{APP_IDENTIFIER}", [

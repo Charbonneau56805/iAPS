@@ -12,6 +12,8 @@ extension AutotuneConfig {
         private(set) var units: GlucoseUnits = .mmolL
         @Published var publishedDate = Date()
         @Published var increment: Double = 0.1
+        @Published var running: Bool = false
+
         @Persisted(key: "lastAutotuneDate") private var lastAutotuneDate = Date() {
             didSet {
                 DispatchQueue.main.async {
@@ -20,6 +22,9 @@ extension AutotuneConfig {
             }
         }
 
+        @Published var currentProfile: [BasalProfileEntry] = []
+        @Published var currentTotal: Decimal = 0.0
+
         override func subscribe() {
             autotune = provider.autotune
             units = settingsManager.settings.units
@@ -27,6 +32,9 @@ extension AutotuneConfig {
             publishedDate = lastAutotuneDate
             increment = Double(settingsManager.preferences.bolusIncrement)
             subscribeSetting(\.onlyAutotuneBasals, on: $onlyAutotuneBasals) { onlyAutotuneBasals = $0 }
+
+            currentProfile = provider.profile
+            calcTotal()
 
             $useAutotune
                 .removeDuplicates()
@@ -41,7 +49,15 @@ extension AutotuneConfig {
                 .store(in: &lifetime)
         }
 
+        func calcTotal() {
+            var profileWith24hours = currentProfile.map(\.minutes)
+            profileWith24hours.append(24 * 60)
+            let pr2 = zip(currentProfile, profileWith24hours.dropFirst())
+            currentTotal = pr2.reduce(0) { $0 + (Decimal($1.1 - $1.0.minutes) / 60) * $1.0.rate }
+        }
+
         func run() {
+            running.toggle()
             provider.runAutotune()
                 .receive(on: DispatchQueue.main)
                 .flatMap { [weak self] result -> AnyPublisher<Bool, Never> in
@@ -49,10 +65,25 @@ extension AutotuneConfig {
                         return Just(false).eraseToAnyPublisher()
                     }
                     self.autotune = result
+
+                    // Round
+                    if var tuned = self.autotune {
+                        let basal = tuned.basalProfile.map { basal in
+                            BasalProfileEntry(
+                                start: basal.start,
+                                minutes: basal.minutes,
+                                rate: basal.rate.roundBolusIncrements(increment: self.increment)
+                            )
+                        }
+                        tuned.basalProfile = basal
+                        self.autotune = tuned
+                    }
+
                     return self.apsManager.makeProfiles()
                 }
                 .sink { [weak self] _ in
                     self?.lastAutotuneDate = Date()
+                    self?.running.toggle()
                 }.store(in: &lifetime)
         }
 
@@ -71,7 +102,7 @@ extension AutotuneConfig {
                         BasalProfileEntry(
                             start: String(basal.start.prefix(5)),
                             minutes: basal.minutes,
-                            rate: basal.rate.roundBolus(increment: increment)
+                            rate: basal.rate.roundBolusIncrements(increment: increment)
                         )
                     }
                 guard let pump = apsManager.pumpManager else {

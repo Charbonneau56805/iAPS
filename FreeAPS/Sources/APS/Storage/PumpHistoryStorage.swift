@@ -31,23 +31,44 @@ final class BasePumpHistoryStorage: PumpHistoryStorage, Injectable {
     }
 
     func storePumpEvents(_ events: [NewPumpEvent]) {
+        guard !events.isEmpty else { return }
+
         let insulinConcentration = concentration
         processQueue.async {
+            let storedEvents = self.recent()
             let eventsToStore = events.flatMap { event -> [PumpHistoryEvent] in
                 let id = event.raw.md5String
                 switch event.type {
                 case .bolus:
                     guard let dose = event.dose else { return [] }
-
                     var amount = Decimal(string: dose.unitsInDeliverableIncrements.description)
 
-                    // Needing a bigger change?
                     if insulinConcentration.concentration != 1, var needingAdjustment = amount {
                         needingAdjustment *= Decimal(insulinConcentration.concentration)
-                        amount = needingAdjustment.roundBolus(increment: insulinConcentration.increment)
+                        amount = needingAdjustment
+                            .roundBolusIncrements(increment: insulinConcentration.concentration * 0.05)
                     }
 
                     let minutes = Int((dose.endDate - dose.startDate).timeInterval / 60)
+                    if let duplicatedEvent = storedEvents
+                        .first(where: { x in
+                            Int(x.timestamp.timeIntervalSince1970) == Int(event.date.timeIntervalSince1970) && x.type == .bolus })
+                    {
+                        return [PumpHistoryEvent(
+                            id: duplicatedEvent.id,
+                            type: .bolus,
+                            timestamp: duplicatedEvent.timestamp,
+                            amount: amount,
+                            duration: minutes,
+                            durationMin: nil,
+                            rate: nil,
+                            temp: nil,
+                            carbInput: nil,
+                            isSMB: dose.automatic,
+                            isExternal: dose.manuallyEntered
+                        )]
+                    }
+
                     return [PumpHistoryEvent(
                         id: id,
                         type: .bolus,
@@ -63,13 +84,12 @@ final class BasePumpHistoryStorage: PumpHistoryStorage, Injectable {
                     )]
                 case .tempBasal:
                     guard let dose = event.dose else { return [] }
-
                     var rate = Decimal(dose.unitsPerHour)
 
                     // Eventual adjustment for concentration
                     if insulinConcentration.concentration != 1, rate >= 0.05 {
                         rate *= Decimal(insulinConcentration.concentration)
-                        rate = rate.roundBolus(increment: insulinConcentration.increment)
+                        rate = rate.roundBolusIncrements(increment: insulinConcentration.concentration * 0.05)
                     }
 
                     let minutes = (dose.endDate - dose.startDate).timeInterval / 60
@@ -317,7 +337,8 @@ final class BasePumpHistoryStorage: PumpHistoryStorage, Injectable {
                     fat: nil,
                     protein: nil,
                     targetTop: nil,
-                    targetBottom: nil
+                    targetBottom: nil,
+                    creation_date: event.timestamp
                 )
             default: return nil
             }
