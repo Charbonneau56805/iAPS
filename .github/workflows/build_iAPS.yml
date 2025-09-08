@@ -17,6 +17,13 @@ env:
   UPSTREAM_BRANCH: ${{ github.ref_name }} # branch on upstream repository to sync from (replace with specific branch name if needed)
   TARGET_BRANCH: ${{ github.ref_name }} # target branch on fork to be kept in sync, and target branch on upstream to be kept alive (replace with specific branch name if needed)
   ALIVE_BRANCH: alive
+  TEAMID: ${{ secrets.TEAMID }}
+  FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+  FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+  FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+  MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+  GH_PAT: ${{ secrets.GH_PAT }}
+  CERT_PROFILE_BASE64: ${{ secrets.CERT_PROFILE_BASE64 }}
 
 jobs:
   auto_build_check:
@@ -136,6 +143,12 @@ jobs:
       # Install project dependencies
       - name: Install project dependencies
         run: bundle install
+
+ - name: Decode provisioning profile
+      run: |
+        echo "${{ secrets.CERT_PROFILE_BASE64 }}" | base64 -d > FreeAPS_Appstore_2025.mobileprovision
+        mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+        cp FreeAPS_Appstore_2025.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
       # Sync the GitHub runner clock with the Windows time server (workaround as suggested in https://github.com/actions/runner/issues/2996)
       - name: Sync clock
