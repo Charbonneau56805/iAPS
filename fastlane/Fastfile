@@ -3,20 +3,22 @@
 # Actions: https://docs.fastlane.tools/actions
 # Plugins: https://docs.fastlane.tools/plugins/available-plugins
 
+require "base64"
+
 default_platform(:ios)
 
 # --------
 # ENV / constants
 # --------
-TEAMID                    = ENV["TEAMID"]
-GH_PAT                    = ENV["GH_PAT"]
-GITHUB_WORKSPACE          = ENV["GITHUB_WORKSPACE"]
-GITHUB_REPOSITORY_OWNER   = ENV["GITHUB_REPOSITORY_OWNER"]
-FASTLANE_KEY_ID           = ENV["FASTLANE_KEY_ID"]
-FASTLANE_ISSUER_ID        = ENV["FASTLANE_ISSUER_ID"]
-FASTLANE_KEY              = ENV["FASTLANE_KEY"]
-DEVICE_NAME               = ENV["DEVICE_NAME"]
-DEVICE_ID                 = ENV["DEVICE_ID"]
+TEAMID                  = ENV["TEAMID"]
+GH_PAT                  = ENV["GH_PAT"]
+GITHUB_WORKSPACE        = ENV["GITHUB_WORKSPACE"]
+GITHUB_REPOSITORY_OWNER = ENV["GITHUB_REPOSITORY_OWNER"]
+FASTLANE_KEY_ID         = ENV["FASTLANE_KEY_ID"]
+FASTLANE_ISSUER_ID      = ENV["FASTLANE_ISSUER_ID"]
+FASTLANE_KEY            = ENV["FASTLANE_KEY"]
+DEVICE_NAME             = ENV["DEVICE_NAME"]
+DEVICE_ID               = ENV["DEVICE_ID"]
 ENV["FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT"] = "120"
 
 # Fallback bundle id if APP_IDENTIFIER isn’t provided by the workflow
@@ -76,6 +78,8 @@ platform :ios do
       force: true,
       force_for_new_certificates: true,
       app_identifier: app_ids,
+      git_branch: "main",
+      api_key: api_key,
       git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
     )
 
@@ -151,7 +155,7 @@ platform :ios do
     )
   end
 
-  desc "Provision Identifiers and Certificates"
+  desc "Provision Identifiers and Certificates (App IDs + capabilities)"
   lane :identifiers do
     setup_ci if ENV["CI"]
     ENV["MATCH_READONLY"] = "false"
@@ -192,12 +196,12 @@ platform :ios do
     ])
   end
 
-  desc "Provision Certificates"
+  desc "Provision Certificates & Profiles (writes to Match-Secrets)"
   lane :certs do
     setup_ci if ENV["CI"]
     ENV["MATCH_READONLY"] = "false"
 
-    app_store_connect_api_key(
+    api_key = app_store_connect_api_key(
       key_id:     FASTLANE_KEY_ID,
       issuer_id:  FASTLANE_ISSUER_ID,
       key_content: FASTLANE_KEY
@@ -211,17 +215,18 @@ platform :ios do
       force: true,
       readonly: false,
       app_identifier: app_ids,
+      git_branch: "main",
+      api_key: api_key,
       git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
     )
   end
 
-  desc "Validate Secrets"
+  desc "Validate Secrets (read-only check from Match-Secrets)"
   lane :validate_secrets do
     setup_ci if ENV["CI"]
-    # READONLY on, but we still pass explicit app_identifiers so fastlane won’t error
     ENV["MATCH_READONLY"] = "true"
 
-    app_store_connect_api_key(
+    api_key = app_store_connect_api_key(
       key_id:     FASTLANE_KEY_ID,
       issuer_id:  FASTLANE_ISSUER_ID,
       key_content: FASTLANE_KEY
@@ -240,11 +245,13 @@ platform :ios do
       type: "appstore",
       readonly: true,
       app_identifier: app_ids,
+      git_branch: "main",
+      api_key: api_key,
       git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
     )
   end
 
-  desc "Nuke Certs"
+  desc "Nuke Certs (dangerous: revokes distribution certs)"
   lane :nuke_certs do
     setup_ci if ENV["CI"]
     ENV["MATCH_READONLY"] = "false"
@@ -259,6 +266,7 @@ platform :ios do
       type: "appstore",
       team_id: TEAMID,
       skip_confirmation: true,
+      git_branch: "main",
       git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
     )
   end
