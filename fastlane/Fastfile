@@ -221,10 +221,12 @@ platform :ios do
     )
   end
 
-desc "Validate Secrets (read-only check from Match-Secrets)"
+desc "Validate Secrets (one-time repair to refresh profiles)"
 lane :validate_secrets do
   setup_ci if ENV["CI"]
-  ENV["MATCH_READONLY"] = "true"
+
+  # TEMP: allow writes this one time so profiles are recreated for the new cert
+  ENV["MATCH_READONLY"] = "false"
 
   api_key = app_store_connect_api_key(
     key_id:     FASTLANE_KEY_ID,
@@ -237,13 +239,15 @@ lane :validate_secrets do
 
   match(
     type: "appstore",
-    readonly: true,
+    readonly: false,               # <-- must be FALSE for this run
+    force: true,                   # <-- ensures regeneration against the new cert
     app_identifier: app_ids,
     git_branch: "main",
     api_key: api_key,
     git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
   )
 end
+
 
 
 
