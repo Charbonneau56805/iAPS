@@ -221,35 +221,32 @@ platform :ios do
     )
   end
 
-  desc "Validate Secrets (read-only check from Match-Secrets)"
-  lane :validate_secrets do
-    setup_ci if ENV["CI"]
-    ENV["MATCH_READONLY"] = "true"
+  desc "Validate Secrets (one-time repair to refresh profiles)"
+lane :validate_secrets do
+  setup_ci if ENV["CI"]
+  ENV["MATCH_READONLY"] = "false"  # TEMP: allow writes to recreate profiles
 
-    api_key = app_store_connect_api_key(
-      key_id:     FASTLANE_KEY_ID,
-      issuer_id:  FASTLANE_ISSUER_ID,
-      key_content: FASTLANE_KEY
-    )
+  api_key = app_store_connect_api_key(
+    key_id:     FASTLANE_KEY_ID,
+    issuer_id:  FASTLANE_ISSUER_ID,
+    key_content: FASTLANE_KEY
+  )
 
-    def find_bundle_id(identifier)
-      Spaceship::ConnectAPI::BundleId.find(identifier)
-    end
+  id_base = APP_IDENTIFIER
+  app_ids = all_app_ids(id_base)
 
-    id_base = APP_IDENTIFIER
-    app_ids = all_app_ids(id_base)
+  # Create/refresh App Store provisioning profiles so they match the new Distribution cert
+  match(
+    type: "appstore",
+    readonly: false,               # TEMP
+    force: true,                   # ensure regeneration for the new cert
+    app_identifier: app_ids,
+    git_branch: "main",
+    api_key: api_key,
+    git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
+  )
+end
 
-    find_bundle_id(id_base)
-
-    match(
-      type: "appstore",
-      readonly: true,
-      app_identifier: app_ids,
-      git_branch: "main",
-      api_key: api_key,
-      git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
-    )
-  end
 
   desc "Nuke Certs (dangerous: revokes distribution certs)"
   lane :nuke_certs do
