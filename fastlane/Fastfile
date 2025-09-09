@@ -78,7 +78,7 @@ platform :ios do
       force: true,
       force_for_new_certificates: true,
       app_identifier: app_ids,
-      git_branch: "main",
+      git_branch: "master",
       api_key: api_key,
       git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
     )
@@ -215,7 +215,7 @@ platform :ios do
       force: true,
       readonly: false,
       app_identifier: app_ids,
-      git_branch: "main",
+      git_branch: "master",
       api_key: api_key,
       git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
     )
@@ -242,7 +242,7 @@ lane :validate_secrets do
     readonly: false,               # <-- must be FALSE for this run
     force: true,                   # <-- ensures regeneration against the new cert
     app_identifier: app_ids,
-    git_branch: "main",
+    git_branch: "master",
     api_key: api_key,
     git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
   )
@@ -266,7 +266,7 @@ end
       type: "appstore",
       team_id: TEAMID,
       skip_confirmation: true,
-      git_branch: "main",
+      git_branch: "master",
       git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
     )
   end
