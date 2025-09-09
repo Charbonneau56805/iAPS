@@ -2,8 +2,10 @@ name: Build iAPS
 run-name: Build iAPS (${{ github.ref_name }})
 
 on:
-  workflow_dispatch:    # manual launcher in Actions
-  push:                 # optional—remove this whole push: block if you don't want auto-builds
+  # Manual launcher in the Actions tab
+  workflow_dispatch:
+  # Optional auto-build on pushes (remove this block if you don't want it)
+  push:
     branches:
       - main
       - master
@@ -23,24 +25,33 @@ env:
   CERT_PROFILE_BASE64: ${{ secrets.CERT_PROFILE_BASE64 }}
 
 jobs:
+  # Decide if this branch should autobuild (based on repo variable AUTO_BUILD_BRANCHES)
   auto_build_check:
     name: Check Auto Build Status
     runs-on: ubuntu-latest
     outputs:
-      AUTO_BUILD_ENABLED: ${{ steps.auto-build-enabled.outputs.auto_build }}
+      AUTO_BUILD_ENABLED: ${{ steps.auto_build_enabled.outputs.auto_build }}
     steps:
       - name: Is Auto Build Branch
-        id: auto-build-enabled
+        id: auto_build_enabled
+        shell: bash
         run: |
-          echo "auto_build=false" >> $GITHUB_OUTPUT
-          if [ -n "${{ vars.AUTO_BUILD_BRANCHES }}" ]; then
-            if echo ",${{ vars.AUTO_BUILD_BRANCHES }}," | grep -q ",${{ github.ref_name }},"; then
-              echo "auto_build=true" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          echo "auto_build=false" >> "$GITHUB_OUTPUT"
+
+          LIST="${{ vars.AUTO_BUILD_BRANCHES || '' }}"
+          if [[ -n "$LIST" ]]; then
+            LIST=",$LIST,"
+            BR="${{ github.ref_name }}"
+            if echo "$LIST" | grep -q ",${BR},"; then
+              echo "auto_build=true" >> "$GITHUB_OUTPUT"
             fi
           fi
-      - name: Show Auto Build Status
-        run: echo "Auto Build Status: ${{ steps.auto-build-enabled.outputs.auto_build }}"
 
+      - name: Show Auto Build Status
+        run: echo "Auto Build Status: ${{ steps.auto_build_enabled.outputs.auto_build }}"
+
+  # Reuse your validate workflow (this runs on manual launch or when autobuild enabled)
   validate:
     name: Validate
     needs: auto_build_check
@@ -48,43 +59,15 @@ jobs:
     uses: ./.github/workflows/validate_secrets.yml
     secrets: inherit
 
+  # (Optional) Sync from upstream if you have scheduled syncs enabled via repo variables
   check_latest_from_upstream:
     name: Check upstream
-    needs: [validate]
+    needs: validate
     runs-on: ubuntu-latest
     outputs:
-      NEW_COMMITS: ${{ steps.sync.outputs.has_new_commits }}
+      NEW_COMMITS: ${{ steps.export.outputs.NEW_COMMITS }}
     steps:
       - name: Checkout target repo
-        if: needs.validate.outputs.HAS_WORKFLOW_PERMISSION == 'true' && (vars.SCHEDULED_BUILD != 'false' || vars.SCHEDULED_SYNC != 'false')
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GH_PAT }}
-          ref: alive
-
-  build:
-    name: Build
-    needs: [validate, check_latest_from_upstream]
-    runs-on: macos-14
-    permissions:
-      contents: write
-    steps:
-      - name: Set special variables
-        run: |
-          if [ -n "${{ vars.APP_IDENTIFIER }}" ]; then
-            echo "APP_IDENTIFIER=${{ vars.APP_IDENTIFIER }}" >> $GITHUB_ENV
-          fi
-          if [ -n "${{ vars.BUILD_GROUP }}" ]; then
-            echo "BUILD_GROUP=${{ vars.BUILD_GROUP }}" >> $GITHUB_ENV
-          fi
-
-      # Choose Xcode reliably
-      - name: Select Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "16.3"
-
-      - name: Checkout Repo for syncing
         if: vars.SCHEDULED_SYNC == 'true'
         uses: actions/checkout@v4
         with:
@@ -92,8 +75,8 @@ jobs:
           ref: ${{ env.TARGET_BRANCH }}
 
       - name: Sync upstream changes
-        if: vars.SCHEDULED_SYNC == 'true' && github.repository_owner != 'Artificial-Pancreas'
         id: sync
+        if: vars.SCHEDULED_SYNC == 'true' && github.repository_owner != 'Artificial-Pancreas'
         uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
         with:
           target_sync_branch: ${{ env.TARGET_BRANCH }}
@@ -102,37 +85,64 @@ jobs:
           upstream_sync_branch: ${{ env.UPSTREAM_BRANCH }}
           upstream_sync_repo: ${{ env.UPSTREAM_REPO }}
 
-      - name: New commits found
-        if: vars.SCHEDULED_SYNC == 'true' && steps.sync.outputs.has_new_commits == 'true'
-        run: echo "New commits were found to sync."
+      - name: Export NEW_COMMITS output
+        id: export
+        shell: bash
+        run: |
+          if [[ "${{ vars.SCHEDULED_SYNC }}" == "true" && "${{ steps.sync.outputs.has_new_commits || '' }}" == "true" ]]; then
+            echo "NEW_COMMITS=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "NEW_COMMITS=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: No new commits
-        if: vars.SCHEDULED_SYNC == 'true' && steps.sync.outputs.has_new_commits == 'false'
-        run: echo "There were no new commits."
+  # Build and (optionally) upload to TestFlight
+  build:
+    name: Build
+    needs: [validate, check_latest_from_upstream]
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - name: Set optional variables for Fastlane
+        shell: bash
+        run: |
+          if [[ -n "${{ vars.APP_IDENTIFIER }}" ]]; then
+            echo "APP_IDENTIFIER=${{ vars.APP_IDENTIFIER }}" >> "$GITHUB_ENV"
+          fi
+          if [[ -n "${{ vars.BUILD_GROUP }}" ]]; then
+            echo "BUILD_GROUP=${{ vars.BUILD_GROUP }}" >> "$GITHUB_ENV"
+          fi
 
-      - name: Show value of 'has_new_commits'
-        if: vars.SCHEDULED_SYNC == 'true'
-        run: echo "${{ steps.sync.outputs.has_new_commits }}"
+      - name: Select Xcode version
+        run: sudo xcode-select --switch /Applications/Xcode_16.3.app/Contents/Developer
 
-      - name: Checkout Repo for building
+      - name: Checkout repo (build)
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
           submodules: recursive
           ref: ${{ env.TARGET_BRANCH }}
 
+      # Patch Fastlane Match to not print tables (keeps logs clean)
       - name: Patch Match Tables
         run: find /usr/local/lib/ruby/gems -name table_printer.rb | xargs sed -i "" "/puts(Terminal::Table.new(params))/d"
 
       - name: Install project dependencies
         run: bundle install
 
-      - name: Decode provisioning profile
+      - name: Decode provisioning profile (primary App Store profile)
+        shell: bash
         run: |
-          echo "${{ secrets.CERT_PROFILE_BASE64 }}" | base64 -D > FreeAPS_Appstore_2025.mobileprovision
+          set -euo pipefail
+          if [[ -z "${CERT_PROFILE_BASE64}" ]]; then
+            echo "CERT_PROFILE_BASE64 is empty. Skipping decode step."
+            exit 0
+          fi
+          echo "${CERT_PROFILE_BASE64}" | base64 -d > FreeAPS_Appstore.mobileprovision
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp FreeAPS_Appstore_2025.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"
+          cp FreeAPS_Appstore.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
+      # GitHub macOS runners sometimes drift — this helps the App Store auth timestamp
       - name: Sync clock
         run: sudo sntp -sS time.windows.com
 
