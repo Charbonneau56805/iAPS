@@ -32,21 +32,18 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       AUTO_BUILD_ENABLED: ${{ steps.auto-build-enabled.outputs.auto_build }}
-
     steps:
       - name: Is Auto Build Branch
         id: auto-build-enabled
         run: |
           echo "auto_build=false" >> $GITHUB_OUTPUT
-          if [ ! -z "${{ vars.AUTO_BUILD_BRANCHES }}" ]; then
+          if [ -n "${{ vars.AUTO_BUILD_BRANCHES }}" ]; then
             if echo ",${{ vars.AUTO_BUILD_BRANCHES }}," | grep -q ",${{ github.ref_name }},"; then
               echo "auto_build=true" >> $GITHUB_OUTPUT
             fi
           fi
-
       - name: Show Auto Build Status
-        run: |
-          echo "Auto Build Status: ${{ steps.auto-build-enabled.outputs.auto_build }}"
+        run: echo "Auto Build Status: ${{ steps.auto-build-enabled.outputs.auto_build }}"
 
   validate:
     name: Validate
@@ -56,53 +53,50 @@ jobs:
     secrets: inherit
 
   check_latest_from_upstream:
+    name: Check upstream
     needs: [validate]
     runs-on: ubuntu-latest
-    name: Check upstream
-    outputs: 
+    outputs:
       NEW_COMMITS: ${{ steps.sync.outputs.has_new_commits }}
-    
     steps:
-    - name: Checkout target repo
-      if: |
-        needs.check_alive_and_permissions.outputs.WORKFLOW_PERMISSION == 'true' &&
-        (vars.SCHEDULED_BUILD != 'false' || vars.SCHEDULED_SYNC != 'false')
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GH_PAT }}
-        ref: alive
-  
-  # Builds iAPS
+      - name: Checkout target repo
+        if: needs.validate.outputs.HAS_WORKFLOW_PERMISSION == 'true' && (vars.SCHEDULED_BUILD != 'false' || vars.SCHEDULED_SYNC != 'false')
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          ref: alive
+
   build:
     name: Build
-    needs: [validate,check_latest_from_upstream]
-    runs-on: macos-15
+    needs: [validate, check_latest_from_upstream]
+    runs-on: macos-14
     permissions:
       contents: write
     steps:
       - name: Set special variables
         run: |
-          if [ ! -z ${{ vars.APP_IDENTIFIER }}  ]; then
+          if [ -n "${{ vars.APP_IDENTIFIER }}" ]; then
             echo "APP_IDENTIFIER=${{ vars.APP_IDENTIFIER }}" >> $GITHUB_ENV
           fi
-          if [ ! -z ${{ vars.BUILD_GROUP }}  ]; then
+          if [ -n "${{ vars.BUILD_GROUP }}" ]; then
             echo "BUILD_GROUP=${{ vars.BUILD_GROUP }}" >> $GITHUB_ENV
           fi
 
-      - name: Select Xcode version
-        run: "sudo xcode-select --switch /Applications/Xcode_16.3.app/Contents/Developer"
-      
+      # Choose Xcode reliably
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.3"
+
       - name: Checkout Repo for syncing
-        if: |
-          vars.SCHEDULED_SYNC == 'true'
+        if: vars.SCHEDULED_SYNC == 'true'
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
-          ref: ${{ env.TARGET_BRANCH }} 
-      
+          ref: ${{ env.TARGET_BRANCH }}
+
       - name: Sync upstream changes
-        if: | # do not run the upstream sync action on the upstream repository
-          vars.SCHEDULED_SYNC == 'true' && github.repository_owner != 'Artificial-Pancreas'
+        if: vars.SCHEDULED_SYNC == 'true' && github.repository_owner != 'Artificial-Pancreas'
         id: sync
         uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
         with:
@@ -111,24 +105,18 @@ jobs:
           target_repo_token: ${{ secrets.GH_PAT }}
           upstream_sync_branch: ${{ env.UPSTREAM_BRANCH }}
           upstream_sync_repo: ${{ env.UPSTREAM_REPO }}
-      
-      # Display a sample message based on the sync output var 'has_new_commits'
+
       - name: New commits found
-        if: |
-          vars.SCHEDULED_SYNC == 'true' && steps.sync.outputs.has_new_commits == 'true'
+        if: vars.SCHEDULED_SYNC == 'true' && steps.sync.outputs.has_new_commits == 'true'
         run: echo "New commits were found to sync."
-    
+
       - name: No new commits
-        if: |
-          vars.SCHEDULED_SYNC == 'true' && steps.sync.outputs.has_new_commits == 'false'
+        if: vars.SCHEDULED_SYNC == 'true' && steps.sync.outputs.has_new_commits == 'false'
         run: echo "There were no new commits."
-      
+
       - name: Show value of 'has_new_commits'
-        if: |
-          vars.SCHEDULED_SYNC == 'true'
-        run: |
-          echo ${{ steps.sync.outputs.has_new_commits }}
-          echo "NEW_COMMITS=${{ steps.sync.outputs.has_new_commits }}" >> $GITHUB_OUTPUT
+        if: vars.SCHEDULED_SYNC == 'true'
+        run: echo "${{ steps.sync.outputs.has_new_commits }}"
 
       - name: Checkout Repo for building
         uses: actions/checkout@v4
@@ -137,27 +125,23 @@ jobs:
           submodules: recursive
           ref: ${{ env.TARGET_BRANCH }}
 
-      # Patch Fastlane Match to not print tables
       - name: Patch Match Tables
         run: find /usr/local/lib/ruby/gems -name table_printer.rb | xargs sed -i "" "/puts(Terminal::Table.new(params))/d"
-      
-      # Install project dependencies
+
       - name: Install project dependencies
         run: bundle install
 
- - name: Decode provisioning profile
-      run: |
-        echo "${{ secrets.CERT_PROFILE_BASE64 }}" | base64 -d > FreeAPS_Appstore_2025.mobileprovision
-        mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-        cp FreeAPS_Appstore_2025.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+      - name: Decode provisioning profile
+        run: |
+          echo "${{ secrets.CERT_PROFILE_BASE64 }}" | base64 -D > FreeAPS_Appstore_2025.mobileprovision
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp FreeAPS_Appstore_2025.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
-      # Sync the GitHub runner clock with the Windows time server (workaround as suggested in https://github.com/actions/runner/issues/2996)
       - name: Sync clock
         run: sudo sntp -sS time.windows.com
 
-      # Build signed iAPS IPA file
       - name: Fastlane Build & Archive
-        run: bundle exec fastlane build_iAPS        
+        run: bundle exec fastlane build_iAPS
         env:
           TEAMID: ${{ secrets.TEAMID }}
           GH_PAT: ${{ secrets.GH_PAT }}
@@ -165,8 +149,7 @@ jobs:
           FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
           FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      
-      # Upload to TestFlight
+
       - name: Fastlane upload to TestFlight
         run: bundle exec fastlane release
         env:
@@ -177,8 +160,7 @@ jobs:
           FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-      # Upload Build artifacts
-      - name: Upload build log, IPA and Symbol artifacts
+      - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
