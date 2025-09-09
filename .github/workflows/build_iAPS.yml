@@ -21,10 +21,6 @@ env:
   MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
   GH_PAT: ${{ secrets.GH_PAT }}
   CERT_PROFILE_BASE64: ${{ secrets.CERT_PROFILE_BASE64 }}
-  FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
-  MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-  GH_PAT: ${{ secrets.GH_PAT }}
-  CERT_PROFILE_BASE64: ${{ secrets.CERT_PROFILE_BASE64 }}
 
 jobs:
   auto_build_check:
