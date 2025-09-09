@@ -2,7 +2,7 @@ name: Build iAPS
 run-name: Build iAPS (${{ github.ref_name }})
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   push:
     branches:
       - main
@@ -36,8 +36,7 @@ jobs:
           set -euo pipefail
           echo "auto_build=false" >> "$GITHUB_OUTPUT"
 
-          # NOTE: no '||' in expressions; if the var doesn't exist,
-          # GitHub resolves it to an empty string, which we handle in bash.
+          # If repo var AUTO_BUILD_BRANCHES exists and contains the current branch, enable auto build
           LIST="${{ vars.AUTO_BUILD_BRANCHES }}"
           if [[ -n "$LIST" ]]; then
             LIST=",$LIST,"
@@ -53,7 +52,7 @@ jobs:
   validate:
     name: Validate
     needs: auto_build_check
-    if: needs.auto_build_check.outputs.AUTO_BUILD_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
+    if: ${{ needs.auto_build_check.outputs.AUTO_BUILD_ENABLED == 'true' || github.event_name == 'workflow_dispatch' }}
     uses: ./.github/workflows/validate_secrets.yml
     secrets: inherit
 
@@ -65,7 +64,7 @@ jobs:
       NEW_COMMITS: ${{ steps.export.outputs.NEW_COMMITS }}
     steps:
       - name: Checkout target repo
-        if: vars.SCHEDULED_SYNC == 'true'
+        if: ${{ vars.SCHEDULED_SYNC == 'true' }}
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
@@ -73,7 +72,7 @@ jobs:
 
       - name: Sync upstream changes
         id: sync
-        if: vars.SCHEDULED_SYNC == 'true' && github.repository_owner != 'Artificial-Pancreas'
+        if: ${{ vars.SCHEDULED_SYNC == 'true' && github.repository_owner != 'Artificial-Pancreas' }}
         uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
         with:
           target_sync_branch: ${{ env.TARGET_BRANCH }}
@@ -86,7 +85,7 @@ jobs:
         id: export
         shell: bash
         run: |
-          if [[ "${{ vars.SCHEDULED_SYNC }}" == "true" && "${{ steps.sync.outputs.has_new_commits || '' }}" == "true" ]]; then
+          if [[ "${{ vars.SCHEDULED_SYNC }}" == "true" && "${{ steps.sync.outputs.has_new_commits }}" == "true" ]]; then
             echo "NEW_COMMITS=true" >> "$GITHUB_OUTPUT"
           else
             echo "NEW_COMMITS=false" >> "$GITHUB_OUTPUT"
