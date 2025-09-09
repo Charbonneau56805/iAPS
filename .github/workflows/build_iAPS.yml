@@ -2,9 +2,7 @@ name: Build iAPS
 run-name: Build iAPS (${{ github.ref_name }})
 
 on:
-  # Manual launcher in the Actions tab
   workflow_dispatch:
-  # Optional auto-build on pushes (remove this block if you don't want it)
   push:
     branches:
       - main
@@ -25,7 +23,6 @@ env:
   CERT_PROFILE_BASE64: ${{ secrets.CERT_PROFILE_BASE64 }}
 
 jobs:
-  # Decide if this branch should autobuild (based on repo variable AUTO_BUILD_BRANCHES)
   auto_build_check:
     name: Check Auto Build Status
     runs-on: ubuntu-latest
@@ -39,7 +36,9 @@ jobs:
           set -euo pipefail
           echo "auto_build=false" >> "$GITHUB_OUTPUT"
 
-          LIST="${{ vars.AUTO_BUILD_BRANCHES || '' }}"
+          # NOTE: no '||' in expressions; if the var doesn't exist,
+          # GitHub resolves it to an empty string, which we handle in bash.
+          LIST="${{ vars.AUTO_BUILD_BRANCHES }}"
           if [[ -n "$LIST" ]]; then
             LIST=",$LIST,"
             BR="${{ github.ref_name }}"
@@ -51,7 +50,6 @@ jobs:
       - name: Show Auto Build Status
         run: echo "Auto Build Status: ${{ steps.auto_build_enabled.outputs.auto_build }}"
 
-  # Reuse your validate workflow (this runs on manual launch or when autobuild enabled)
   validate:
     name: Validate
     needs: auto_build_check
@@ -59,7 +57,6 @@ jobs:
     uses: ./.github/workflows/validate_secrets.yml
     secrets: inherit
 
-  # (Optional) Sync from upstream if you have scheduled syncs enabled via repo variables
   check_latest_from_upstream:
     name: Check upstream
     needs: validate
@@ -95,7 +92,6 @@ jobs:
             echo "NEW_COMMITS=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # Build and (optionally) upload to TestFlight
   build:
     name: Build
     needs: [validate, check_latest_from_upstream]
@@ -123,7 +119,6 @@ jobs:
           submodules: recursive
           ref: ${{ env.TARGET_BRANCH }}
 
-      # Patch Fastlane Match to not print tables (keeps logs clean)
       - name: Patch Match Tables
         run: find /usr/local/lib/ruby/gems -name table_printer.rb | xargs sed -i "" "/puts(Terminal::Table.new(params))/d"
 
@@ -142,7 +137,6 @@ jobs:
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp FreeAPS_Appstore.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/"
 
-      # GitHub macOS runners sometimes drift — this helps the App Store auth timestamp
       - name: Sync clock
         run: sudo sntp -sS time.windows.com
 
