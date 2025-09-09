@@ -1,7 +1,10 @@
-name: 4. Build iAPS
+name: Build iAPS
 run-name: Build iAPS (${{ github.ref_name }})
+
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}   # <— this line makes it show up & be runnable
+  # (optional) you can also keep other triggers like "push:" if you want
+
   
   # this will trigger this workflow for any push to any branch that this workflow is
   # active on, *but*, the auto_build_check job will check to see if this branch is
