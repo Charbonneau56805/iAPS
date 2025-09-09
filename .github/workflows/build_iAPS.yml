@@ -2,27 +2,25 @@ name: Build iAPS
 run-name: Build iAPS (${{ github.ref_name }})
 
 on:
-  workflow_dispatch: {}   # <— this line makes it show up & be runnable
-  # (optional) you can also keep other triggers like "push:" if you want
+  workflow_dispatch:    # manual launcher in Actions
+  push:                 # optional—remove this whole push: block if you don't want auto-builds
+    branches:
+      - main
+      - master
+      - alive
 
-  
-  # this will trigger this workflow for any push to any branch that this workflow is
-  # active on, *but*, the auto_build_check job will check to see if this branch is
-  # enabled *for* being auto built, and short circuit the process if so.
-  #
-  # if AUTO_BUILD_BRANCHES is not set, or the current branch is not listed, this
-  # workflow is triggered, but doesn't actually do anything.
-  #
-  push:
-  
-env:  
+env:
   UPSTREAM_REPO: Artificial-Pancreas/iAPS
-  UPSTREAM_BRANCH: ${{ github.ref_name }} # branch on upstream repository to sync from (replace with specific branch name if needed)
-  TARGET_BRANCH: ${{ github.ref_name }} # target branch on fork to be kept in sync, and target branch on upstream to be kept alive (replace with specific branch name if needed)
+  UPSTREAM_BRANCH: ${{ github.ref_name }}
+  TARGET_BRANCH: ${{ github.ref_name }}
   ALIVE_BRANCH: alive
   TEAMID: ${{ secrets.TEAMID }}
   FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
   FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+  FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+  MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+  GH_PAT: ${{ secrets.GH_PAT }}
+  CERT_PROFILE_BASE64: ${{ secrets.CERT_PROFILE_BASE64 }}
   FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
   MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
   GH_PAT: ${{ secrets.GH_PAT }}
