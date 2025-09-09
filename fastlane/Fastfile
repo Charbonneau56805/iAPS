@@ -221,10 +221,10 @@ platform :ios do
     )
   end
 
-  desc "Validate Secrets (one-time repair to refresh profiles)"
+desc "Validate Secrets (read-only check from Match-Secrets)"
 lane :validate_secrets do
   setup_ci if ENV["CI"]
-  ENV["MATCH_READONLY"] = "false"  # TEMP: allow writes to recreate profiles
+  ENV["MATCH_READONLY"] = "true"
 
   api_key = app_store_connect_api_key(
     key_id:     FASTLANE_KEY_ID,
@@ -235,17 +235,16 @@ lane :validate_secrets do
   id_base = APP_IDENTIFIER
   app_ids = all_app_ids(id_base)
 
-  # Create/refresh App Store provisioning profiles so they match the new Distribution cert
   match(
     type: "appstore",
-    readonly: false,               # TEMP
-    force: true,                   # ensure regeneration for the new cert
+    readonly: true,
     app_identifier: app_ids,
     git_branch: "main",
     api_key: api_key,
     git_basic_authorization: Base64.strict_encode64("#{GITHUB_REPOSITORY_OWNER}:#{GH_PAT}")
   )
 end
+
 
 
   desc "Nuke Certs (dangerous: revokes distribution certs)"
