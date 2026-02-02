@@ -81,12 +81,11 @@ jobs:
           echo "DEVELOPER_DIR=/Applications/Xcode_26.0.1.app/Contents/Developer" >> $GITHUB_ENV
           xcodebuild -version
 
-      # ✅ OPTION B FIX: ensure iOS platform components are installed for this Xcode
+      # Option B fix (keep if you want)
       - name: Install Xcode components + platforms (fix iOS Platform Not Installed)
         run: |
           sudo xcodebuild -license accept || true
           sudo xcodebuild -runFirstLaunch
-          # Downloads missing platform components (iOS/tvOS/watchOS/visionOS) if not present
           sudo xcodebuild -downloadAllPlatforms
           xcodebuild -showsdks
 
@@ -165,3 +164,4 @@ jobs:
           path: |
             artifacts
             buildlog
+          if-no-files-found: warn
