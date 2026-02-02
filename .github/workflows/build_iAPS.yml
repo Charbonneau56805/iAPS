@@ -9,7 +9,6 @@ env:
   UPSTREAM_REPO: Artificial-Pancreas/iAPS
   UPSTREAM_BRANCH: ${{ github.ref_name }}
   TARGET_BRANCH: ${{ github.ref_name }}
-  ALIVE_BRANCH: alive
 
 jobs:
   auto_build_check:
@@ -46,11 +45,12 @@ jobs:
     outputs:
       NEW_COMMITS: ${{ steps.sync.outputs.has_new_commits }}
     steps:
-      - name: Checkout target repo (alive)
+      - name: Checkout target repo (current branch)
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
-          ref: ${{ env.ALIVE_BRANCH }}
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
 
       # (Optional) You can add your upstream check logic here.
       - name: Placeholder
