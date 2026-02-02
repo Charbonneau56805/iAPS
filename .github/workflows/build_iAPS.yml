@@ -48,14 +48,16 @@ jobs:
     name: Check upstream
     outputs:
       NEW_COMMITS: ${{ steps.sync.outputs.has_new_commits }}
+
     steps:
-      - name: Checkout target repo
+      - name: Checkout target repo (alive)
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
           ref: alive
 
-  # Builds iAPS
+      # Optional: keep this job minimal; the build job does sync/build work.
+
   build:
     name: Build
     needs: [check_certs, check_latest_from_upstream]
@@ -66,15 +68,15 @@ jobs:
     steps:
       - name: Set special variables
         run: |
-          if [ ! -z ${{ vars.APP_IDENTIFIER }}  ]; then
+          if [ ! -z "${{ vars.APP_IDENTIFIER }}" ]; then
             echo "APP_IDENTIFIER=${{ vars.APP_IDENTIFIER }}" >> $GITHUB_ENV
           fi
-          if [ ! -z ${{ vars.BUILD_GROUP }}  ]; then
+          if [ ! -z "${{ vars.BUILD_GROUP }}" ]; then
             echo "BUILD_GROUP=${{ vars.BUILD_GROUP }}" >> $GITHUB_ENV
           fi
 
       - name: Select Xcode version
-        run: "sudo xcode-select --switch /Applications/Xcode_26.0.1.app/Contents/Developer"
+        run: sudo xcode-select --switch /Applications/Xcode_26.0.1.app/Contents/Developer
 
       - name: Checkout Repo for syncing
         if: vars.SCHEDULED_SYNC == 'true'
@@ -102,12 +104,6 @@ jobs:
         if: vars.SCHEDULED_SYNC == 'true' && steps.sync.outputs.has_new_commits == 'false'
         run: echo "There were no new commits."
 
-      - name: Show value of 'has_new_commits'
-        if: vars.SCHEDULED_SYNC == 'true'
-        run: |
-          echo ${{ steps.sync.outputs.has_new_commits }}
-          echo "NEW_COMMITS=${{ steps.sync.outputs.has_new_commits }}" >> $GITHUB_OUTPUT
-
       - name: Checkout Repo for building
         uses: actions/checkout@v4
         with:
@@ -115,27 +111,27 @@ jobs:
           submodules: recursive
           ref: ${{ env.TARGET_BRANCH }}
 
-      # Ensure compatible Bundler version for Fastlane (fastlane requires bundler < 3)
       - name: Install Bundler 2.x
         run: |
           gem install bundler -v 2.7.2
           echo "BUNDLER_VER=2.7.2" >> $GITHUB_ENV
 
-      # Patch Fastlane Match to not print tables
       - name: Patch Match Tables
         run: find /usr/local/lib/ruby/gems -name table_printer.rb | xargs sed -i "" "/puts(Terminal::Table.new(params))/d"
 
-      # Install project dependencies
       - name: Install project dependencies
         run: bundle _${{ env.BUNDLER_VER }}_ install
 
-      # Sync the GitHub runner clock with the Windows time server (workaround as suggested in https://github.com/actions/runner/issues/2996)
       - name: Sync clock
         run: sudo sntp -sS time.windows.com
 
-      # -----------------------------
-      # FIX: Ensure signing identity exists on runner
-      # -----------------------------
+      # -------------------------------------------
+      # CODE SIGNING (P12 + Provisioning Profile)
+      # Uses your existing secrets:
+      #   CERT_P12_BASE64, CERT_P12_PASSWORD, CERT_PROFILE_BASE64
+      # Requires new secret:
+      #   KEYCHAIN_PASSWORD
+      # -------------------------------------------
       - name: Create temp keychain
         run: |
           security create-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
@@ -143,18 +139,26 @@ jobs:
           security unlock-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
           security default-keychain -s build.keychain
           security list-keychains -d user -s build.keychain
-          security show-keychain-info build.keychain
 
-      - name: Install signing certificates (match)
+      - name: Import signing certificate (.p12)
         run: |
-          bundle _${{ env.BUNDLER_VER }}_ exec fastlane match appstore --readonly \
-            keychain_name:build.keychain \
-            keychain_password:"${{ secrets.KEYCHAIN_PASSWORD }}"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          echo "${{ secrets.CERT_P12_BASE64 }}" | base64 --decode > cert.p12
+          security import cert.p12 \
+            -k build.keychain \
+            -P "${{ secrets.CERT_P12_PASSWORD }}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+
+      - name: Install provisioning profile
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.CERT_PROFILE_BASE64 }}" | base64 --decode > profile.mobileprovision
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
       - name: Verify code signing identities
         run: security find-identity -v -p codesigning build.keychain
-      # -----------------------------
 
       # Build signed iAPS IPA file
       - name: Fastlane Build & Archive
@@ -168,7 +172,6 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
 
-      # Upload to TestFlight
       - name: Fastlane upload to TestFlight
         run: bundle _${{ env.BUNDLER_VER }}_ exec fastlane release
         env:
@@ -180,7 +183,6 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
 
-      # Upload Build artifacts
       - name: Upload build log, IPA and Symbol artifacts
         if: always()
         uses: actions/upload-artifact@v4
